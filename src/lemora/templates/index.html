@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lemora Beauty Store</title>
+</head>
+<body>
+  <h1>Lemora Beauty Store</h1>
+  <p>Demo store with demo prices. Not affiliated with or operated by L'Oréal.</p>
+  <form method="get">
+    <select name="category">
+      <option value="">All categories</option>
+      {% for c in categories %}
+        <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c | capitalize }}</option>
+      {% endfor %}
+    </select>
+    <select name="brand">
+      <option value="">All brands</option>
+      {% for b in brands %}
+        <option value="{{ b }}" {% if b == brand %}selected{% endif %}>{{ b }}</option>
+      {% endfor %}
+    </select>
+    <input name="max_price" type="number" min="0" placeholder="Max price (SGD)" value="{{ max_price }}">
+    <button type="submit">Filter</button>
+    <a href="/">Clear</a>
+  </form>
+  <p>{{ products | length }} products</p>
+  <ul>
+    {% for p in products %}
+      <li>{{ p.brand }} – <a href="/product/{{ p.sku_id }}">{{ p.name }}</a> – SGD {{ p.price_sgd }}</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>
