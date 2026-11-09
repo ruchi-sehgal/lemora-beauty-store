@@ -7,7 +7,10 @@ authors = [
     { name = "ruchi-sehgal", email = "ruchi18sehgal@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.162.2",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [project.scripts]
 lemora = "lemora:main"
