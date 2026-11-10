@@ -59,6 +59,11 @@ def run():
             time.sleep(15)
 
     seconds = time.perf_counter() - started
+    query(
+        "INSERT INTO ingest_runs (embedded, already_fresh, seconds) "
+        "VALUES (%(e)s, %(f)s, %(s)s) RETURNING run_id",
+        {"e": len(todo), "f": len(rows) - len(todo), "s": round(seconds, 1)},
+    )
     print(f"done: embedded {len(todo)}, already fresh {len(rows) - len(todo)}, took {seconds:.1f}s")
 
 

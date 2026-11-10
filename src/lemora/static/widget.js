@@ -13,6 +13,14 @@
       </header>
       <p class="lm-note">AI-generated suggestions. Prices and details come from our catalogue.</p>
       <div id="lm-log"></div>
+      <div id="lm-rate" hidden>
+        <span>Rate this chat:</span>
+        <button type="button" data-n="1" aria-label="1 star">★</button>
+        <button type="button" data-n="2" aria-label="2 stars">★</button>
+        <button type="button" data-n="3" aria-label="3 stars">★</button>
+        <button type="button" data-n="4" aria-label="4 stars">★</button>
+        <button type="button" data-n="5" aria-label="5 stars">★</button>
+      </div>
       <form id="lm-form">
         <input id="lm-input" maxlength="500" placeholder="e.g. a serum for dry skin" autocomplete="off" required>
         <button type="submit">Send</button>
@@ -24,9 +32,13 @@
   const log = document.getElementById("lm-log");
   const form = document.getElementById("lm-form");
   const input = document.getElementById("lm-input");
+  const rate = document.getElementById("lm-rate");
 
   let conversationId = null;
+  let lastMessageId = null;
+  let rated = false;
   try { conversationId = sessionStorage.getItem("lm_conversation"); } catch (e) {}
+  try { rated = sessionStorage.getItem("lm_rated") === "1"; } catch (e) {}
 
   function addText(role, text) {
     const div = document.createElement("div");
@@ -89,6 +101,29 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function offerRating(messageId) {
+    lastMessageId = messageId;
+    if (!rated) rate.hidden = false;
+  }
+
+  rate.querySelectorAll("button").forEach(function (b) {
+    b.onclick = async function () {
+      if (!lastMessageId) return;
+      try {
+        const res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_id: lastMessageId, csat_score: Number(b.dataset.n) }),
+        });
+        if (!res.ok) return;
+        rated = true;
+        try { sessionStorage.setItem("lm_rated", "1"); } catch (e) {}
+        rate.hidden = true;
+        addText("bot", "Thanks for rating us " + b.dataset.n + "/5!");
+      } catch (e) {}
+    };
+  });
+
   document.getElementById("lm-open").onclick = function () {
     panel.hidden = false;
     try { sessionStorage.setItem("lm_open", "1"); } catch (e) {}
@@ -103,7 +138,10 @@
 
   document.getElementById("lm-new").onclick = function () {
     conversationId = null;
-    try { sessionStorage.removeItem("lm_conversation"); } catch (e) {}
+    lastMessageId = null;
+    rated = false;
+    rate.hidden = true;
+    try { sessionStorage.removeItem("lm_conversation"); sessionStorage.removeItem("lm_rated"); } catch (e) {}
     log.textContent = "";
     addText("bot", GREETING);
   };
@@ -115,7 +153,10 @@
         const data = await res.json();
         data.messages.forEach(function (m) {
           addText(m.role === "user" ? "user" : "bot", m.message);
-          if (m.role === "assistant") addCards(m.products || []);
+          if (m.role === "assistant") {
+            addCards(m.products || []);
+            offerRating(m.message_id);
+          }
         });
       } catch (e) {}
     }
@@ -144,6 +185,7 @@
       try { sessionStorage.setItem("lm_conversation", conversationId); } catch (e) {}
       addCards(data.products || []);
       addFeedback(data.message_id);
+      offerRating(data.message_id);
     } catch (e) {
       waiting.textContent = "Sorry, something went wrong. You can still browse the store with the filters.";
     }

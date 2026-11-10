@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lemora metrics</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; color: #222; }
+    .wrap { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 16px 0 28px; }
+    .tile { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    .tile b { display: block; font-size: 22px; margin: 4px 0; }
+    .tile small { color: #777; }
+    table { border-collapse: collapse; width: 100%; margin: 8px 0 28px; }
+    td, th { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; font-size: 14px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lemora assistant metrics</h1>
+  <div class="tiles">
+    {% for label, value, note in m.tiles %}
+      <div class="tile"><span>{{ label }}</span><b>{{ value }}</b><small>{{ note }}</small></div>
+    {% endfor %}
+  </div>
+
+  <h2>By prompt version</h2>
+  <table><tr><th>Version</th><th>Answers</th><th>Accepted</th><th>Corrected or rejected</th></tr>
+    {% for r in m.by_version %}<tr><td>{{ r.version }}</td><td>{{ r.answers }}</td><td>{{ r.accepted }}</td><td>{{ r.not_ok }}</td></tr>{% endfor %}
+  </table>
+
+  <h2>Repeat failures by brand</h2>
+  <table><tr><th>Brand</th><th>Corrected or rejected answers</th></tr>
+    {% for r in m.failures_by_brand %}<tr><td>{{ r.brand }}</td><td>{{ r.failures }}</td></tr>{% else %}<tr><td colspan="2">None yet</td></tr>{% endfor %}
+  </table>
+
+  <h2>Unmet demand (searches that found nothing or needed relaxing)</h2>
+  <table><tr><th>Filters used</th><th>Times</th></tr>
+    {% for r in m.unmet %}<tr><td>{{ r.filters }}</td><td>{{ r.times }}</td></tr>{% else %}<tr><td colspan="2">None yet</td></tr>{% endfor %}
+  </table>
+
+  <h2>What shoppers asked us to fix</h2>
+  <table><tr><th>Correction</th><th>Answer it was about</th><th>When</th></tr>
+    {% for r in m.corrections %}<tr><td>{{ r.correction_text }}</td><td>{{ r.answer }}</td><td>{{ r.created_at.strftime('%Y-%m-%d') }}</td></tr>{% else %}<tr><td colspan="3">None yet</td></tr>{% endfor %}
+  </table>
+
+  <h2>Catalogue embedding runs (time to onboard)</h2>
+  <table><tr><th>When</th><th>Embedded</th><th>Already fresh</th><th>Seconds</th></tr>
+    {% for r in m.ingest %}<tr><td>{{ r.started_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ r.embedded }}</td><td>{{ r.already_fresh }}</td><td>{{ r.seconds }}</td></tr>{% else %}<tr><td colspan="4">None yet</td></tr>{% endfor %}
+  </table>
+</div>
+</body>
+</html>

@@ -42,6 +42,8 @@ jobs:
           psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/chat_schema.sql
           psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_002.sql
           psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_003.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_004.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_005.sql
       - name: Embed the catalogue
         run: uv run python -m lemora.embed_catalogue
       - name: Golden set (the quality gate)

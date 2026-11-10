@@ -1,7 +1,10 @@
+import hmac
+import os
 import uuid
-from typing import Literal
 import zlib
 from pathlib import Path
+from typing import Literal
+
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -10,10 +13,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from lemora.chat import chat, history_for_widget, owns_conversation, start_conversation
-from lemora.guardrails import allow, looks_like_injection
 from lemora.db import query
+from lemora.guardrails import allow, looks_like_injection
+from lemora.metrics import collect
+from lemora.observability import setup
 
 HERE = Path(__file__).parent
+setup()
 app = FastAPI(title="Lemora Beauty Store")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -21,6 +27,15 @@ templates = Jinja2Templates(directory=HERE / "templates")
 
 def hue_for(brand):
     return zlib.crc32(brand.encode()) % 360
+
+def log_event(kind, detail=""):
+    try:
+        query(
+            "INSERT INTO error_log (kind, detail) VALUES (%(k)s, %(d)s) RETURNING error_id",
+            {"k": kind, "d": detail[:500]},
+        )
+    except Exception as error:                      # logging must never break the chat
+        print("could not log event:", repr(error))
 
 
 @app.get("/health")
@@ -80,15 +95,17 @@ def api_chat(body: ChatIn, request: Request):
     visitor_id = request.cookies.get("visitor_id") or uuid.uuid4().hex
     client_ip = request.client.host if request.client else "unknown"
     if not allow("visitor:" + visitor_id, limit=20) or not allow("ip:" + client_ip, limit=60):
+        log_event("rate_limited")
         return JSONResponse(
             {"message": "You're sending messages very quickly. Please wait a few minutes and try again."},
             status_code=429,
-        )    
+        )
     if looks_like_injection(body.message):
+        log_event("injection_blocked")
         return JSONResponse(
             {"message": "I can only help with Lemora beauty products. What are you looking for today?"},
             status_code=400,
-        )    
+        )
     conversation_id = body.conversation_id
     if not conversation_id or not owns_conversation(conversation_id, visitor_id):
         conversation_id = start_conversation(visitor_id)
@@ -97,6 +114,7 @@ def api_chat(body: ChatIn, request: Request):
         result = chat(conversation_id, body.message)
     except Exception as error:
         print("chat failed:", repr(error))
+        log_event("chat_failed", repr(error))
         return JSONResponse(
             {"fallback": True, "message": "The assistant is unavailable right now. "
              "You can still browse the store with the filters."},
@@ -108,15 +126,18 @@ def api_chat(body: ChatIn, request: Request):
                         httponly=True, samesite="lax")
     return response
 
+
 class FeedbackIn(BaseModel):
     message_id: int
-    verdict: Literal["accepted", "corrected", "rejected"]
+    verdict: Literal["accepted", "corrected", "rejected"] | None = None
     correction_text: str | None = Field(default=None, max_length=500)
     csat_score: int | None = Field(default=None, ge=1, le=5)
 
 
 @app.post("/api/feedback")
 def api_feedback(body: FeedbackIn, request: Request):
+    if body.verdict is None and body.csat_score is None:
+        raise HTTPException(status_code=422, detail="Send a verdict or a rating")
     visitor_id = request.cookies.get("visitor_id")
     mine = query(
         """
@@ -140,9 +161,18 @@ def api_feedback(body: FeedbackIn, request: Request):
     )
     return {"ok": True}
 
+
 @app.get("/api/history")
 def api_history(conversation_id: str, request: Request):
     visitor_id = request.cookies.get("visitor_id")
     if not visitor_id or not owns_conversation(conversation_id, visitor_id):
         return {"messages": []}
     return {"messages": history_for_widget(conversation_id)}
+
+
+@app.get("/admin/metrics")
+def admin_metrics(request: Request, key: str = ""):
+    expected = os.environ.get("ADMIN_KEY", "")
+    if not expected or not hmac.compare_digest(key, expected):
+        raise HTTPException(status_code=404)        # pretend the page doesn't exist
+    return templates.TemplateResponse(request, "metrics.html", {"m": collect()})
