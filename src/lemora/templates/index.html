@@ -4,11 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lemora Beauty Store</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<main>
   <h1>Lemora Beauty Store</h1>
-  <p>Demo store with demo prices. Not affiliated with or operated by L'Oréal.</p>
-  <form method="get">
+  <p class="notice">Demo store with demo prices. Not affiliated with or operated by L'Oréal.</p>
+  <form method="get" class="filters">
     <select name="category">
       <option value="">All categories</option>
       {% for c in categories %}
@@ -26,10 +28,20 @@
     <a href="/">Clear</a>
   </form>
   <p>{{ products | length }} products</p>
-  <ul>
+  <ul class="grid">
     {% for p in products %}
-      <li>{{ p.brand }} – <a href="/product/{{ p.sku_id }}">{{ p.name }}</a> – SGD {{ p.price_sgd }}</li>
+    <li class="card">
+      <a href="/product/{{ p.sku_id }}">
+        <div class="swatch" style="--hue: {{ p.hue }}">{{ p.brand }}</div>
+        <div class="body">
+          <div class="brand">{{ p.category | capitalize }}</div>
+          <div>{{ p.name }}</div>
+          <div class="price">SGD {{ p.price_sgd }}</div>
+        </div>
+      </a>
+    </li>
     {% endfor %}
   </ul>
+</main>
 </body>
 </html>

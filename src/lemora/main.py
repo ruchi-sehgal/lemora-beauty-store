@@ -1,12 +1,20 @@
+import zlib
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from lemora.db import query
 
+HERE = Path(__file__).parent
 app = FastAPI(title="Lemora Beauty Store")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+templates = Jinja2Templates(directory=HERE / "templates")
+
+
+def hue_for(brand):
+    return zlib.crc32(brand.encode()) % 360
 
 
 @app.get("/health")
@@ -30,6 +38,8 @@ def home(request: Request, category: str = "", brand: str = "", max_price: str =
         "ORDER BY brand, name",
         {"category": category, "brand": brand, "limit": limit},
     )
+    for p in products:
+        p["hue"] = hue_for(p["brand"])
     brands = [r["brand"] for r in query(
         "SELECT DISTINCT brand FROM products WHERE is_active ORDER BY brand")]
     categories = [r["category"] for r in query(
@@ -49,4 +59,6 @@ def product(request: Request, sku_id: str):
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Product not found")
-    return templates.TemplateResponse(request, "product.html", {"p": rows[0]})
+    p = rows[0]
+    p["hue"] = hue_for(p["brand"])
+    return templates.TemplateResponse(request, "product.html", {"p": p})

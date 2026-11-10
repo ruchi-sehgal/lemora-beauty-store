@@ -4,10 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ p.name }} | Lemora Beauty Store</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<main>
   <p><a href="/">&larr; All products</a></p>
   <h1>{{ p.name }}</h1>
+  <div class="swatch big" style="--hue: {{ p.hue }}">{{ p.brand }}</div>
   <p>{{ p.brand }} &middot; {{ p.category | capitalize }} &middot; {{ p.product_type }}</p>
   <p><strong>SGD {{ p.price_sgd }}</strong>{% if p.price_is_demo %} <small>(demo price)</small>{% endif %}</p>
   {% if p.benefit %}<p>{{ p.benefit }}</p>{% endif %}
@@ -15,5 +18,6 @@
   {% if p.fragrance_notes %}<p>Scent notes: {{ p.fragrance_notes }}{% if p.fragrance_family %} ({{ p.fragrance_family }}){% endif %}</p>{% endif %}
   <p>Best for: {{ p.target_audience }}</p>
   <p><em>Full ingredient list not available. Please check the packaging.</em></p>
+</main>
 </body>
 </html>
