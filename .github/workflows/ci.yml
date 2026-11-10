@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lemora_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LEMORA_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lemora_ci
+      GROQ_API_KEY: ci-not-used
+      GROQ_MODEL: qwen/qwen3.8-27b
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - run: uv sync
+      - name: Unit tests
+        run: uv run pytest -q
+      - name: Build the test database
+        run: |
+          psql "$LEMORA_DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector"
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/load.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/chat_schema.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_002.sql
+          psql "$LEMORA_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migration_003.sql
+      - name: Embed the catalogue
+        run: uv run python -m lemora.embed_catalogue
+      - name: Golden set (the quality gate)
+        run: uv run python -m evals.run_golden
