@@ -123,7 +123,8 @@ def api_chat(body: ChatIn, request: Request):
 
     response = JSONResponse({**result, "conversation_id": conversation_id})
     response.set_cookie("visitor_id", visitor_id, max_age=60 * 60 * 24 * 90,
-                        httponly=True, samesite="lax")
+                        httponly=True, samesite="lax",
+                        secure=os.environ.get("COOKIE_SECURE") == "1")
     return response
 
 
