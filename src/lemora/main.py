@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 import zlib
 from pathlib import Path
 
@@ -8,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from lemora.chat import chat, owns_conversation, start_conversation
+from lemora.chat import chat, history_for_widget, owns_conversation, start_conversation
+from lemora.guardrails import allow, looks_like_injection
 from lemora.db import query
 
 HERE = Path(__file__).parent
@@ -76,6 +78,17 @@ class ChatIn(BaseModel):
 @app.post("/api/chat")
 def api_chat(body: ChatIn, request: Request):
     visitor_id = request.cookies.get("visitor_id") or uuid.uuid4().hex
+    client_ip = request.client.host if request.client else "unknown"
+    if not allow("visitor:" + visitor_id, limit=20) or not allow("ip:" + client_ip, limit=60):
+        return JSONResponse(
+            {"message": "You're sending messages very quickly. Please wait a few minutes and try again."},
+            status_code=429,
+        )    
+    if looks_like_injection(body.message):
+        return JSONResponse(
+            {"message": "I can only help with Lemora beauty products. What are you looking for today?"},
+            status_code=400,
+        )    
     conversation_id = body.conversation_id
     if not conversation_id or not owns_conversation(conversation_id, visitor_id):
         conversation_id = start_conversation(visitor_id)
@@ -94,3 +107,42 @@ def api_chat(body: ChatIn, request: Request):
     response.set_cookie("visitor_id", visitor_id, max_age=60 * 60 * 24 * 90,
                         httponly=True, samesite="lax")
     return response
+
+class FeedbackIn(BaseModel):
+    message_id: int
+    verdict: Literal["accepted", "corrected", "rejected"]
+    correction_text: str | None = Field(default=None, max_length=500)
+    csat_score: int | None = Field(default=None, ge=1, le=5)
+
+
+@app.post("/api/feedback")
+def api_feedback(body: FeedbackIn, request: Request):
+    visitor_id = request.cookies.get("visitor_id")
+    mine = query(
+        """
+        SELECT 1 FROM messages m
+        JOIN conversations c USING (conversation_id)
+        WHERE m.message_id = %(m)s AND m.role = 'assistant' AND c.visitor_id = %(v)s
+        """,
+        {"m": body.message_id, "v": visitor_id},
+    )
+    if not mine:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    query(
+        """
+        INSERT INTO feedback (message_id, verdict, correction_text, csat_score)
+        VALUES (%(m)s, %(verdict)s, %(text)s, %(score)s)
+        RETURNING feedback_id
+        """,
+        {"m": body.message_id, "verdict": body.verdict,
+         "text": body.correction_text, "score": body.csat_score},
+    )
+    return {"ok": True}
+
+@app.get("/api/history")
+def api_history(conversation_id: str, request: Request):
+    visitor_id = request.cookies.get("visitor_id")
+    if not visitor_id or not owns_conversation(conversation_id, visitor_id):
+        return {"messages": []}
+    return {"messages": history_for_widget(conversation_id)}

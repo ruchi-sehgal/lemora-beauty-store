@@ -16,6 +16,8 @@ def search_products(f: SearchFilters) -> list[dict]:
         "AND (%(gender)s::text IS NULL OR gender IS NULL OR gender = 'unisex' "
         "     OR gender = %(gender)s::text) "
         "AND (%(max_price)s::numeric IS NULL OR price_sgd <= %(max_price)s::numeric) "
+        "AND (%(exclude_skus)s::text[] IS NULL OR NOT (sku_id = ANY(%(exclude_skus)s::text[]))) "
+        "AND (%(exclude_brands)s::text[] IS NULL OR NOT (brand = ANY(%(exclude_brands)s::text[]))) "
         "ORDER BY price_sgd, brand, name LIMIT %(limit)s",
         {
             "category": f.category,
@@ -25,6 +27,8 @@ def search_products(f: SearchFilters) -> list[dict]:
             "concerns": f.concerns,
             "gender": f.gender,
             "max_price": f.max_price_sgd,
+            "exclude_skus": f.exclude_skus,
+            "exclude_brands": f.exclude_brands,
             "limit": f.limit,
         },
     )

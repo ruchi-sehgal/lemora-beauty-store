@@ -22,7 +22,11 @@ class SearchFilters(BaseModel):
     concerns: list[Concern] | None = None
     gender: Gender | None = None
     max_price_sgd: Annotated[float, Field(gt=0, le=2000)] | None = None
-    limit: Annotated[int, Field(ge=1, le=20)] = 10
+    limit: Annotated[int, Field(ge=1, le=20)] = 10    
+    exclude_skus: Annotated[list[str], Field(max_length=20)] | None = None
+    exclude_brands: Annotated[list[str], Field(max_length=10)] | None = None
+
+    
 
 
 class Recommendation(BaseModel):

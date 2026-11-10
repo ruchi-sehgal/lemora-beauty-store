@@ -1,12 +1,14 @@
 import os
 import uuid
 import time
+from pydantic_ai.usage import UsageLimits
 
-from lemora.agent import agent
+from lemora.agent import ChatDeps, agent
 from lemora.db import query
+from lemora.guardrails import scrub_pii
 
-PROMPT_VERSION = "v1"
-HISTORY_MESSAGES = 10
+PROMPT_VERSION = "v3"
+HISTORY_MESSAGES = 6
 
 
 def start_conversation(visitor_id):
@@ -65,21 +67,38 @@ def cards_for(skus):
     by_id = {r["sku_id"]: {**r, "price_sgd": float(r["price_sgd"])} for r in rows}
     return [by_id[s] for s in skus if s in by_id]
 
+def shown_skus(conversation_id):
+    rows = query(
+        "SELECT DISTINCT unnest(recommended_skus) AS sku FROM messages "
+        "WHERE conversation_id = %(c)s",
+        {"c": conversation_id},
+    )
+    return [r["sku"] for r in rows]
+
 
 def chat(conversation_id, message):
+    message, pii_found = scrub_pii(message)
     history = load_history(conversation_id)
     started = time.perf_counter()
-    reply = agent.run_sync(build_prompt(history, message)).output
+    reply = agent.run_sync(
+        build_prompt(history, message),
+        deps=ChatDeps(shown_skus=shown_skus(conversation_id)),
+        usage_limits=UsageLimits(request_limit=6, tool_calls_limit=3),
+    ).output
     latency_ms = int((time.perf_counter() - started) * 1000)
 
-    cards = cards_for([r.sku_id for r in reply.recommendations])
+    text = reply.message
+    if pii_found:
+        text += " (For your privacy, I removed personal details from your message.)"
+
+    cards = cards_for([r.sku_id for r in reply.recommendations][:4])
     save_message(conversation_id, "user", message)
     message_id = save_message(
-        conversation_id, "assistant", reply.message, [c["sku_id"] for c in cards], latency_ms
+        conversation_id, "assistant", text, [c["sku_id"] for c in cards], latency_ms
     )
     return {
         "message_id": message_id,
-        "message": reply.message,
+        "message": text,
         "products": cards,
         "follow_up_question": reply.follow_up_question,
     }
@@ -95,3 +114,19 @@ def owns_conversation(conversation_id, visitor_id):
         {"c": conversation_id, "v": visitor_id},
     )
     return bool(rows)
+
+def history_for_widget(conversation_id, limit=30):
+    rows = query(
+        "SELECT message_id, role, content, recommended_skus FROM messages "
+        "WHERE conversation_id = %(c)s ORDER BY message_id DESC LIMIT %(n)s",
+        {"c": conversation_id, "n": limit},
+    )
+    return [
+        {
+            "message_id": r["message_id"],
+            "role": r["role"],
+            "message": r["content"],
+            "products": cards_for(r["recommended_skus"] or []),
+        }
+        for r in reversed(rows)
+    ]
