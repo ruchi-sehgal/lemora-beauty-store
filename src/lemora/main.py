@@ -1,10 +1,14 @@
+import uuid
 import zlib
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 
+from lemora.chat import chat, owns_conversation, start_conversation
 from lemora.db import query
 
 HERE = Path(__file__).parent
@@ -62,3 +66,31 @@ def product(request: Request, sku_id: str):
     p = rows[0]
     p["hue"] = hue_for(p["brand"])
     return templates.TemplateResponse(request, "product.html", {"p": p})
+
+
+class ChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+    conversation_id: str | None = None
+
+
+@app.post("/api/chat")
+def api_chat(body: ChatIn, request: Request):
+    visitor_id = request.cookies.get("visitor_id") or uuid.uuid4().hex
+    conversation_id = body.conversation_id
+    if not conversation_id or not owns_conversation(conversation_id, visitor_id):
+        conversation_id = start_conversation(visitor_id)
+
+    try:
+        result = chat(conversation_id, body.message)
+    except Exception as error:
+        print("chat failed:", repr(error))
+        return JSONResponse(
+            {"fallback": True, "message": "The assistant is unavailable right now. "
+             "You can still browse the store with the filters."},
+            status_code=503,
+        )
+
+    response = JSONResponse({**result, "conversation_id": conversation_id})
+    response.set_cookie("visitor_id", visitor_id, max_age=60 * 60 * 24 * 90,
+                        httponly=True, samesite="lax")
+    return response
