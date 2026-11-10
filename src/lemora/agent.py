@@ -3,15 +3,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic_ai import Agent, RunContext
+from lemora.db import query
 
 from lemora.schemas import AssistantReply, SearchFilters
 from lemora.search import search_with_relaxing
 
-PROMPT = (Path(__file__).parent / "prompts" / "v3.md").read_text(encoding="utf-8")
+PROMPT = (Path(__file__).parent / "prompts" / "v5.md").read_text(encoding="utf-8")
 
 
 @dataclass
 class ChatDeps:
+    conversation_id: str
     shown_skus: list[str]
 
 
@@ -42,5 +44,15 @@ def find_products(
         skip = sorted(set((filters.exclude_skus or []) + ctx.deps.shown_skus))
         filters = filters.model_copy(update={"exclude_skus": skip})
     rows, relaxed = search_with_relaxing(filters)
+    query(
+        "INSERT INTO search_log (conversation_id, filters, relaxed, result_count) "
+        "VALUES (%(c)s, %(f)s::jsonb, %(r)s, %(n)s) RETURNING search_id",
+        {
+            "c": ctx.deps.conversation_id,
+            "f": filters.model_dump_json(exclude_none=True, exclude={"exclude_skus"}),
+            "r": relaxed,
+            "n": len(rows),
+        },
+    )
     products = [{k: r[k] for k in KEEP if r.get(k)} for r in rows[:6]]
     return {"products": products, "relaxed_filters": relaxed}

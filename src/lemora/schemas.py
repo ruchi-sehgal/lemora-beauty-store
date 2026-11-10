@@ -25,6 +25,7 @@ class SearchFilters(BaseModel):
     limit: Annotated[int, Field(ge=1, le=20)] = 10    
     exclude_skus: Annotated[list[str], Field(max_length=20)] | None = None
     exclude_brands: Annotated[list[str], Field(max_length=10)] | None = None
+    semantic_query: Annotated[str, Field(max_length=200, description="Short phrase of what the shopper wants in their own words, e.g. 'lightweight hydrating' or 'warm woody evening scent'. Used to rank products by meaning.")] | None = None
 
     
 

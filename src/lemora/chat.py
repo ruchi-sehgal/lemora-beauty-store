@@ -1,13 +1,14 @@
 import os
-import uuid
 import time
+import uuid
+
 from pydantic_ai.usage import UsageLimits
 
 from lemora.agent import ChatDeps, agent
 from lemora.db import query
 from lemora.guardrails import scrub_pii
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v5"
 HISTORY_MESSAGES = 6
 
 
@@ -39,18 +40,21 @@ def build_prompt(history, message):
     return "Conversation so far:\n" + "\n".join(lines) + f"\n\nNew shopper message: {message}"
 
 
-def save_message(conversation_id, role, content, skus=None, latency_ms=None):
+def save_message(conversation_id, role, content, skus=None, latency_ms=None, usage=None):
     is_assistant = role == "assistant"
     rows = query(
         "INSERT INTO messages (conversation_id, role, content, recommended_skus, "
-        "prompt_version, model, latency_ms) "
-        "VALUES (%(c)s, %(role)s, %(content)s, %(skus)s, %(pv)s, %(model)s, %(ms)s) "
-        "RETURNING message_id",
+        "prompt_version, model, latency_ms, input_tokens, output_tokens, model_requests) "
+        "VALUES (%(c)s, %(role)s, %(content)s, %(skus)s, %(pv)s, %(model)s, %(ms)s, "
+        "%(tin)s, %(tout)s, %(req)s) RETURNING message_id",
         {
             "c": conversation_id, "role": role, "content": content, "skus": skus or [],
             "pv": PROMPT_VERSION if is_assistant else None,
             "model": os.environ["GROQ_MODEL"] if is_assistant else None,
             "ms": latency_ms,
+            "tin": usage.input_tokens if usage else None,
+            "tout": usage.output_tokens if usage else None,
+            "req": usage.requests if usage else None,
         },
     )
     return rows[0]["message_id"]
@@ -67,6 +71,7 @@ def cards_for(skus):
     by_id = {r["sku_id"]: {**r, "price_sgd": float(r["price_sgd"])} for r in rows}
     return [by_id[s] for s in skus if s in by_id]
 
+
 def shown_skus(conversation_id):
     rows = query(
         "SELECT DISTINCT unnest(recommended_skus) AS sku FROM messages "
@@ -80,11 +85,13 @@ def chat(conversation_id, message):
     message, pii_found = scrub_pii(message)
     history = load_history(conversation_id)
     started = time.perf_counter()
-    reply = agent.run_sync(
+    result = agent.run_sync(
         build_prompt(history, message),
-        deps=ChatDeps(shown_skus=shown_skus(conversation_id)),
+        deps=ChatDeps(conversation_id=conversation_id, shown_skus=shown_skus(conversation_id)),
         usage_limits=UsageLimits(request_limit=6, tool_calls_limit=3),
-    ).output
+    )
+    reply = result.output
+    usage = result.usage()
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     text = reply.message
@@ -94,7 +101,7 @@ def chat(conversation_id, message):
     cards = cards_for([r.sku_id for r in reply.recommendations][:4])
     save_message(conversation_id, "user", message)
     message_id = save_message(
-        conversation_id, "assistant", text, [c["sku_id"] for c in cards], latency_ms
+        conversation_id, "assistant", text, [c["sku_id"] for c in cards], latency_ms, usage
     )
     return {
         "message_id": message_id,
@@ -114,6 +121,7 @@ def owns_conversation(conversation_id, visitor_id):
         {"c": conversation_id, "v": visitor_id},
     )
     return bool(rows)
+
 
 def history_for_widget(conversation_id, limit=30):
     rows = query(

@@ -1,8 +1,9 @@
 from lemora.db import query
+from lemora.embeddings import embed_query, to_pgvector
 from lemora.schemas import SearchFilters
 
 
-def search_products(f: SearchFilters) -> list[dict]:
+def search_products(f: SearchFilters, query_vec=None) -> list[dict]:
     rows = query(
         "SELECT sku_id, brand, name, category, product_type, price_sgd, benefit, "
         "key_ingredients, fragrance_notes, skin_types, concerns, gender "
@@ -18,7 +19,9 @@ def search_products(f: SearchFilters) -> list[dict]:
         "AND (%(max_price)s::numeric IS NULL OR price_sgd <= %(max_price)s::numeric) "
         "AND (%(exclude_skus)s::text[] IS NULL OR NOT (sku_id = ANY(%(exclude_skus)s::text[]))) "
         "AND (%(exclude_brands)s::text[] IS NULL OR NOT (brand = ANY(%(exclude_brands)s::text[]))) "
-        "ORDER BY price_sgd, brand, name LIMIT %(limit)s",
+        "ORDER BY (CASE WHEN %(qv)s::vector IS NULL THEN 0 "
+        "               ELSE embedding <=> %(qv)s::vector END), price_sgd, brand, name "
+        "LIMIT %(limit)s",
         {
             "category": f.category,
             "brands": f.brands,
@@ -29,12 +32,14 @@ def search_products(f: SearchFilters) -> list[dict]:
             "max_price": f.max_price_sgd,
             "exclude_skus": f.exclude_skus,
             "exclude_brands": f.exclude_brands,
+            "qv": query_vec,
             "limit": f.limit,
         },
     )
     for r in rows:
         r["price_sgd"] = float(r["price_sgd"])
     return rows
+
 
 RELAX_ORDER = [
     ("max_price_sgd", "the price limit"),
@@ -45,9 +50,20 @@ RELAX_ORDER = [
 ]
 
 
+def vector_for(f: SearchFilters):
+    if not f.semantic_query:
+        return None
+    try:
+        return to_pgvector(embed_query(f.semantic_query))
+    except Exception as error:                       # never let search fail because of this
+        print("embedding failed, using filters only:", repr(error))
+        return None
+
+
 def search_with_relaxing(f: SearchFilters) -> tuple[list[dict], list[str]]:
+    qv = vector_for(f)                               # embed once, reuse for every relaxed retry
     relaxed = []
-    rows = search_products(f)
+    rows = search_products(f, qv)
     for field, label in RELAX_ORDER:
         if rows:
             break
@@ -55,5 +71,5 @@ def search_with_relaxing(f: SearchFilters) -> tuple[list[dict], list[str]]:
             continue
         f = f.model_copy(update={field: None})
         relaxed.append(label)
-        rows = search_products(f)
+        rows = search_products(f, qv)
     return rows, relaxed
