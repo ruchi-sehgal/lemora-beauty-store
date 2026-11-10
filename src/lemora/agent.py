@@ -12,8 +12,9 @@ agent = Agent(
     "groq:" + os.environ["GROQ_MODEL"],
     output_type=AssistantReply,
     instructions=PROMPT,
+    retries={"output": 3, "tools": 2},
+    model_settings={"groq_reasoning_effort": "none"},
 )
-
 
 @agent.tool_plain
 def find_products(filters: SearchFilters) -> dict:
